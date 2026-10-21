@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ✈️ SkyOps – Airport Operations Coordination Engine
 
 ### Infosys Internship 7.0 | Milestone 1
@@ -150,3 +151,7 @@ AirportWeatherAlerts/
 ---
 
 **Developed as part of Infosys Internship 7.0 – Milestone 1.**
+=======
+# Airport-Operations-Coordination-Engine-
+Airport Operations Coordination Engine — Infosys Internship 7.0 Project Copy description
+>>>>>>> 9488ac8dc97f309d97c70a673b021ace707a5690
