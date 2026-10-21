@@ -15,7 +15,7 @@
 
 ### Weather Monitoring and Alerts
 
-![SkyOps Weather Alerts](screenshots/weather-alerts.png)
+![SkyOps Weather Alerts](screenshots/weather-alert.png)
 
 ---
 
