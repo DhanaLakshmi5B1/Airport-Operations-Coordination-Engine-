@@ -8,6 +8,7 @@ from app.core.dependencies import get_current_user
 from app.database.connection import get_db_connection
 from app.schemas.workflow import WorkflowCreate, WorkflowResponse
 from app.agents.workflow import build_airport_workflow
+from app.tools.gate_availability_tool import GateAvailabilityRequest
 
 
 router = APIRouter(
@@ -76,7 +77,43 @@ def start_workflow(
                 "list of non-empty strings."
             ),
         )
+        # Validate optional gate availability input.
+    gate_request = input_data.get("gate_request")
 
+    if gate_request is not None:
+        try:
+            validated_gate_request = GateAvailabilityRequest.model_validate(
+                gate_request
+            )
+
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=exc.errors(
+                    include_context=False,
+                    include_input=False,
+                ),
+            ) from exc
+
+        if (
+            validated_gate_request.airport_code.upper()
+            != input_data["airport"].strip().upper()
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Gate request airport must match workflow airport.",
+            )
+
+        if (
+            validated_gate_request.flight_number
+            not in input_data["affected_flights"]
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Gate request flight must be an affected flight.",
+            )
+
+        gate_request = validated_gate_request.model_dump()
     workflow_id = str(uuid.uuid4())
     user_id = current_user["user_id"]
 
@@ -116,9 +153,16 @@ def start_workflow(
             "airport": input_data["airport"],
             "disruption": input_data["disruption"],
             "affected_flights": input_data["affected_flights"],
+            "gate_request": gate_request,
+            "permission_request_id": input_data.get("permission_request_id"),
+            "requested_by": user_id,
             "planning_result": {},
             "rule_results": [],
+            "staff_availability_checks": input_data.get(
+                "staff_availability_checks"
+            ),
             "status": "pending",
+            "runway_code": input_data.get("runway_code"),
         }
 
         try:
@@ -163,8 +207,33 @@ def start_workflow(
                 },
             )
 
+        research_result = result.get("research_result")
         planning_result = result.get("planning_result")
         rule_results = result.get("rule_results", [])
+        
+        # Extract consolidated RULE-009 decisions.
+        decision_supports = [
+            item.get("decision_support")
+            for item in rule_results
+            if item.get("decision_support")
+        ]
+
+        decision_priority = {
+            "GRANT": 1,
+            "HOLD": 2,
+            "DELAY": 3,
+        }
+
+        final_decision = None
+
+        if decision_supports:
+            final_decision = max(
+                decision_supports,
+                key=lambda item: decision_priority.get(
+                    item.get("decision"),
+                    0,
+                ),
+            ).get("decision")
 
         if not isinstance(planning_result, dict) or not planning_result:
             connection.execute(
@@ -206,14 +275,18 @@ def start_workflow(
             """
             UPDATE workflows
             SET status = ?,
-            planning_result = ?,
-            rule_results = ?,
-            updated_at = CURRENT_TIMESTAMP
+                decision = ?,
+                research_result = ?,
+                planning_result = ?,
+                rule_results = ?,
+                updated_at = CURRENT_TIMESTAMP
             WHERE workflow_id = ?
             AND requested_by = ?
             """,
             (
                 final_status,
+                final_decision,
+                json.dumps(research_result) if research_result is not None else None,
                 json.dumps(planning_result),
                 json.dumps(rule_results),
                 workflow_id,
@@ -229,7 +302,8 @@ def start_workflow(
             status=final_status,
             requested_by=user_id,
             input_data=input_data,
-            decision=None,
+            decision=final_decision,
+            research_result=research_result,
             planning_result=planning_result,
             rule_results=rule_results,
         )
@@ -270,6 +344,14 @@ def get_workflow(
         workflow["input_data"] = json.loads(
             workflow["input_data"]
         )
+
+        # Deserialize Research Agent result
+        if workflow.get("research_result"):
+            workflow["research_result"] = json.loads(
+                workflow["research_result"]
+            )
+        else:
+            workflow["research_result"] = None
 
         if workflow.get("planning_result"):
             workflow["planning_result"] = json.loads(
