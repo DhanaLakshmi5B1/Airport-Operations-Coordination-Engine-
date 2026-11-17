@@ -48,7 +48,7 @@ The project is developed incrementally through milestones.
 
 
 
-\# 🏗️ Milestone 1 – Agent Foundation
+\# 🏗️ MILESTONE 1-AGENT FOUNDATION
 
 
 
